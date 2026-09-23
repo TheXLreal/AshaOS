@@ -39,7 +39,7 @@ adds a bounded queue at the input of Android's existing ASHA Bluetooth encoder.
 This avoids feeding the PC stream through Android AudioTrack, while the system
 ASHA session remains active. Android still handles G.722 encoding, pairing,
 hearing-aid control, L2CAP, Bluetooth scheduling, and link encryption. AshaOS
-does not install firmware on hearing aids or implement a custom Nordic-style
+does not install firmware on hearing aids or implement a custom Nordic\Pico-style
 GATT service. Bluetooth PAN is only the network transport between PC and phone;
 it shares the same radio with outgoing ASHA and may perform poorly.
 
