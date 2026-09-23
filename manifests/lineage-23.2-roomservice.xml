@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<manifest>
+  <project path="device/google/redfin" remote="github" name="LineageOS/android_device_google_redfin" />
+  <project path="device/google/redbull" remote="github" name="LineageOS/android_device_google_redbull" />
+  <project path="kernel/google/redbull" remote="github" name="LineageOS/android_kernel_google_redbull" />
+</manifest>
