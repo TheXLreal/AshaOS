@@ -12,10 +12,15 @@ UDP/AudioTrack также сохранены.
 | Файл | Для кого |
 | --- | --- |
 | `lineage-23.2-20260923-UNOFFICIAL-ashaos_redfin-direct-network.zip` | OTA для Pixel 5 с уже установленной совместимой AshaOS |
+| `boot.img`, `dtbo.img`, `vendor_boot.img` | Разделы Pixel 5 из этой OTA; не полная прошивка |
 | `windows-ashaos-1.7.exe` | Windows |
 | `ashaos-linux_1.7.0_amd64.deb` | Ubuntu/Debian AMD64 |
 | `AshaOS-GSI-Android16-arm64.img.gz` | Экспериментальный ARM64 system image |
 | `SHA256SUMS.txt` | SHA-256 для проверки файлов |
+
+Образы `boot.img`, `dtbo.img` и `vendor_boot.img` совпадают по размеру и
+SHA-256 с разделами в manifest `payload.bin` опубликованной OTA. Не смешивайте
+их с другой сборкой; сами по себе они не устанавливают AshaOS.
 
 Инструкции по установке, объяснение Direct и сборки для других устройств:
 [README](https://github.com/TheXLreal/AshaOS#readme) ·

@@ -21,6 +21,7 @@ The [release](../../releases) contains:
 | Asset | Purpose |
 | --- | --- |
 | `lineage-23.2-20260923-UNOFFICIAL-ashaos_redfin-direct-network.zip` | Android 16 OTA for an existing compatible AshaOS installation on Pixel 5 (`redfin`) |
+| `boot.img`, `dtbo.img`, `vendor_boot.img` | Pixel 5 partitions from this OTA; not complete firmware |
 | `windows-ashaos-1.7.exe` | Windows desktop audio sender |
 | `ashaos-linux_1.7.0_amd64.deb` | Ubuntu/Debian AMD64 desktop audio sender |
 | `AshaOS-GSI-Android16-arm64.img.gz` | Experimental ARM64 system image |
@@ -29,6 +30,10 @@ The [release](../../releases) contains:
 GitHub release assets must each be under 2 GiB, so the 2.38 GB raw GSI is
 distributed as a 1.21 GB gzip file. The 1.27 GB OTA also fits. Binaries are
 not stored in the Git repository.
+
+The three standalone partition images are also included in the OTA. Their
+sizes and SHA-256 values match its `payload.bin` manifest. Do not mix them
+with another build or flash them alone as a full system installation.
 
 ## How Direct works
 
