@@ -8,11 +8,7 @@ senders, Pixel 5 and ARM64 GSI product files, and small patches against the
 LineageOS Bluetooth module and Android framework. Download binaries from the
 **AshaOS Beta 1.7** release rather than from Git history.
 
-The Pixel 5 OTA ZIP has passed package integrity checks, but installation of
-this build on a phone has not yet been confirmed. The Linux client is built but
-not yet field-tested. The previous GSI failed to boot through DSU on a Pixel 5;
-the updated GSI is also untested on hardware. This is a beta, not a universal
-flashable ROM.
+Status: Beta. Problem is micro interruptions with sound on AshaOS. Though on Windows less interruptions, but on linux more interruptions. GSI didn't on Pixel 5
 
 ## Downloads
 
@@ -61,7 +57,8 @@ is not a guaranteed measurement or a validated GSI result.
 
 ## Install
 
-**Pixel 5 OTA:** Only update a compatible existing AshaOS installation on
+(hmm.. usually at first "adb reboot bootloader" then unlock, install boot and dtbo and vendor_boot) 
+Chatgpt -> **Pixel 5 OTA:** Only update a compatible existing AshaOS installation on
 `redfin`. Back up your data and charge the phone. Enter AshaOS recovery and
 select **Apply update → Apply from ADB**, then run:
 
