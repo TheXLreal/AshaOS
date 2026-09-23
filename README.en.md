@@ -8,7 +8,7 @@ senders, Pixel 5 and ARM64 GSI product files, and small patches against the
 LineageOS Bluetooth module and Android framework. Download binaries from the
 **AshaOS Beta 1.7** release rather than from Git history.
 
-**Status: Beta.** Problem is micro interruptions with sound on AshaOS. Though on Windows less interruptions, but on linux more interruptions. GSI didn't on Pixel 5
+**Status: Beta.** Problem is micro interruptions with sound on AshaOS. Though on Windows less interruptions, but on linux more interruptions. GSI didn't on Pixel 5. Right now, there don’t seem to be any interruptions on Windows.
 
 ## Downloads
 
