@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ashaos_icon_background">#FFFFFF</color>
+    <color name="ashaos_primary">#255AA8</color>
+    <color name="ashaos_primary_dark">#183D73</color>
+    <color name="ashaos_background">#F2F5FA</color>
+    <color name="ashaos_surface">#FFFFFF</color>
+    <color name="ashaos_border">#DCE5F0</color>
+    <color name="ashaos_text_primary">#1B1B1F</color>
+    <color name="ashaos_text_secondary">#4A4A52</color>
+</resources>

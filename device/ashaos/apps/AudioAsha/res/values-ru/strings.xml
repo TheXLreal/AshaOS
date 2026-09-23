@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Audio-Asha</string>
+    <string name="ashaos_title">AshaOS</string>
+    <string name="appearance">Вид и язык</string>
+    <string name="appearance_title">Оформление и язык</string>
+    <string name="theme_setting">Тема</string>
+    <string name="language_setting">Язык</string>
+    <string name="theme_system">Как в системе</string>
+    <string name="theme_light">Светлая</string>
+    <string name="theme_dark">Тёмная</string>
+    <string name="language_system">Как в системе</string>
+    <string name="language_english">English</string>
+    <string name="language_russian">Русский</string>
+    <string name="connection_heading">Подключение к ПК</string>
+    <string name="session_stopped">Остановлено · Нажмите «Запустить»</string>
+    <string name="session_listening">Ожидание звука · Запуск остаётся включённым при тишине</string>
+    <string name="session_reconnecting">Запуск включён · Восстанавливаем звук</string>
+    <string name="session_starting">Запуск · Подключаем службу</string>
+    <string name="connection_mode">Способ подключения</string>
+    <string name="connection_target_label">Адрес Audio-Asha для ПК</string>
+    <string name="connection_unavailable">Данные подключения пока недоступны.</string>
+    <string name="connection_endpoint_ready_format">Адрес для ПК: %1$s\nРежим: %2$s\nИнтерфейс телефона: %3$s\n%4$s</string>
+    <string name="connection_endpoint_unavailable_format">Режим: %1$s\nНе готово: %2$s</string>
+    <string name="copy_connection_endpoint">Скопировать IP:порт</string>
+    <string name="connection_target_copied">IP-адрес и порт скопированы.</string>
+    <string name="enable_wifi_guidance">Подключите телефон к Wi-Fi.</string>
+    <string name="enable_usb_tether_guidance">Включите USB-модем перед запуском Audio-Asha.</string>
+    <string name="enable_bluetooth_pan_guidance">Включите Bluetooth-модем и подключите к нему ПК.</string>
+    <string name="pc_settings_udp">ПК: выключите Direct и введите указанные IP и порт.</string>
+    <string name="pc_settings_direct_tcp">ПК: выберите Direct TCP и введите указанные IP и порт.</string>
+    <string name="pc_settings_direct_udp">ПК: выберите Direct UDP и введите указанные IP и порт.</string>
+    <string name="mode_wifi_udp">Wi-Fi — UDP / AudioTrack</string>
+    <string name="mode_usb_udp">USB-модем — UDP / AudioTrack</string>
+    <string name="mode_bluetooth_udp">Bluetooth PAN — UDP / AudioTrack</string>
+    <string name="mode_direct_usb_tcp">Direct USB — TCP</string>
+    <string name="mode_direct_usb_udp">Direct USB — UDP</string>
+    <string name="mode_direct_wifi_tcp">Direct Wi-Fi — TCP</string>
+    <string name="mode_direct_wifi_udp">Direct Wi-Fi — UDP</string>
+    <string name="mode_direct_bluetooth_tcp">Direct Bluetooth PAN — TCP</string>
+    <string name="mode_direct_bluetooth_udp">Direct Bluetooth PAN — UDP</string>
+    <string-array name="connection_mode_values">
+        <item>@string/mode_wifi_udp</item><item>@string/mode_usb_udp</item>
+        <item>@string/mode_bluetooth_udp</item><item>@string/mode_direct_usb_tcp</item>
+        <item>@string/mode_direct_usb_udp</item><item>@string/mode_direct_wifi_tcp</item>
+        <item>@string/mode_direct_wifi_udp</item><item>@string/mode_direct_bluetooth_tcp</item>
+        <item>@string/mode_direct_bluetooth_udp</item>
+    </string-array>
+    <string name="help_connection_description">Описание способов подключения</string>
+    <string name="help_connection_title">Способы подключения</string>
+    <string name="help_connection_body">Direct USB и Direct Wi-Fi передают PCM прямо в стек ASHA по TCP или UDP, минуя AudioTrack. UDP не ждёт повторной передачи потерянного пакета; TCP сохраняет строгий порядок.\n\nТри режима с пометкой AudioTrack используют обычную маршрутизацию Android и обычно дают большую задержку.\n\nDirect Bluetooth PAN экспериментальный: входящий PAN и исходящий ASHA делят один Bluetooth-радиоканал, поэтому обрывы вероятнее. Реальная задержка зависит от телефона, слуховых аппаратов и сети.</string>
+    <string name="udp_port">UDP-порт</string>
+    <string name="jitter_buffer">Буфер джиттера</string>
+    <string name="help_jitter_description">Описание буфера джиттера</string>
+    <string name="help_jitter_title">Буфер джиттера</string>
+    <string name="help_jitter_body">Эта настройка применяется только к режимам UDP с пометкой AudioTrack. Direct TCP и Direct UDP используют настройку Direct buffer в программе на компьютере.</string>
+    <string name="output_device">Устройство вывода</string>
+    <string name="start_after_boot">Запускать после включения телефона</string>
+    <string name="start_streaming">Запустить</string>
+    <string name="stop_streaming">Остановить</string>
+    <string name="setup_heading">Настройка телефона</string>
+    <string name="setup_explanation">Для Direct USB подключите кабель, включите USB-модем и отладку по USB, подтвердите доступ этому ПК в окне Android и сопрягите слуховые аппараты. Введите на ПК показанные выше IP и порт. Для Wi-Fi или Bluetooth PAN включите соответствующую связь на обоих устройствах. Разрешите уведомления Audio-Asha.</string>
+    <string name="open_tether_settings">Настройки USB-модема</string>
+    <string name="open_developer_settings">Для разработчиков / отладка по USB</string>
+    <string name="open_hearing_settings">Слуховые устройства / спец. возможности</string>
+    <string name="open_bluetooth_settings">Настройки Bluetooth</string>
+    <string name="open_wifi_settings">Настройки Wi-Fi</string>
+    <string name="open_app_settings">Разрешения и уведомления приложения</string>
+    <string name="settings_unavailable">Эта страница настроек недоступна на устройстве.</string>
+    <string name="show_diagnostics">Показать диагностику</string>
+    <string name="hide_diagnostics">Скрыть диагностику</string>
+    <string name="refresh_audio_devices">Обновить устройства</string>
+    <string name="compatibility_diagnostics">Совместимость приложений</string>
+    <string name="compat_installed">Audio-Asha установлено</string>
+    <string name="compat_hearing_output">Выход для слухового аппарата доступен</string>
+    <string name="compat_ble_feature">BLE доступен</string>
+    <string name="compat_gatt">Менеджер Bluetooth GATT доступен</string>
+    <string name="compat_play_services">Google Play Services установлены</string>
+    <string name="compat_installer">AOSP PackageInstaller установлен</string>
+    <string name="compat_webview">Провайдер WebView</string>
+    <string name="compat_browser">Обработчик ссылок HTTPS</string>
+    <string name="compat_accounts">API аккаунтов Android доступен</string>
+    <string name="compat_notifications">Уведомления приложения разрешены</string>
+    <string name="compat_unavailable">Недоступно</string>
+    <string name="compat_nucleus_missing">Не обнаружено; установка разрешённого APK не проверялась</string>
+    <string name="compat_nucleus_detected">Обнаружено: %1$s; запуск, вход и совместимость ещё не проверены</string>
+    <string name="compat_asha_path">Передача звука ASHA</string>
+    <string name="compat_asha_path_value">Системный стек Bluetooth и звука Android, независимо от Nucleus Smart</string>
+    <string name="android_version_format">Версия Android: %1$s (API %2$d)</string>
+    <string name="device_product_format">Устройство: %1$s / %2$s</string>
+    <string name="application_version_format">Версия приложения: %1$s</string>
+    <string name="system_default_output">По умолчанию</string>
+    <string name="invalid_port">Введите UDP-порт от 1 до 65535.</string>
+    <string name="diagnostics_waiting">Здесь появится диагностика потока.</string>
+    <string name="notification_channel_name">Передача звука Audio-Asha</string>
+    <string name="notification_title">Audio-Asha</string>
+    <string name="notification_listening">Ожидание звука на UDP-порту %1$d</string>
+    <string name="notification_streaming">Передача звука на UDP-порту %1$d</string>
+    <string name="notification_direct_system">Режим Direct ASHA включён; ожидание звука с ПК</string>
+    <string name="notification_stop">Остановить</string>
+    <string name="notification_permission_denied">Уведомления запрещены. Активную службу можно увидеть в системном управлении задачами.</string>
+    <string name="service_disconnected">Служба Audio-Asha остановлена или переподключается.</string>
+    <string name="compatibility_title">Совместимость приложений AshaOS</string>
+    <string name="compatibility_guidance">Nucleus Smart — фирменное приложение Cochlear и не входит в AshaOS. Устанавливайте только разрешённую копию через установщик Android. Google Play Services не добавлены в AshaOS. Nucleus Smart не передаёт звук ASHA; за Bluetooth и маршрутизацию отвечает Android.</string>
+    <string name="refresh_diagnostics">Обновить диагностику</string>
+    <string name="value_yes">Да</string>
+    <string name="value_no">Нет</string>
+    <string name="value_unknown">Неизвестно</string>
+    <string name="jitter_0_ms">0 мс</string><string name="jitter_5_ms">5 мс</string>
+    <string name="jitter_10_ms">10 мс</string><string name="jitter_15_ms">15 мс</string>
+    <string name="jitter_20_ms">20 мс</string><string name="jitter_30_ms">30 мс</string>
+    <string name="jitter_50_ms">50 мс</string>
+    <string-array name="jitter_buffer_values">
+        <item>@string/jitter_0_ms</item><item>@string/jitter_5_ms</item>
+        <item>@string/jitter_10_ms</item><item>@string/jitter_15_ms</item>
+        <item>@string/jitter_20_ms</item><item>@string/jitter_30_ms</item>
+        <item>@string/jitter_50_ms</item>
+    </string-array>
+</resources>

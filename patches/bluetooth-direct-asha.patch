@@ -1,0 +1,1132 @@
+diff --git a/system/bta/hearing_aid/hearing_aid.cc b/system/bta/hearing_aid/hearing_aid.cc
+index ea0b164f42..8fd315317a 100644
+--- a/system/bta/hearing_aid/hearing_aid.cc
++++ b/system/bta/hearing_aid/hearing_aid.cc
+@@ -1820,19 +1820,38 @@ public:
+     for (const auto& device : hearingDevices.devices) {
+       bool side = device.capabilities & CAPABILITY_SIDE;
+       bool standalone = device.capabilities & CAPABILITY_BINAURAL;
+-      stream << "  " << device.address.ToString() << " " << (device.accepting_audio ? "" : "not ")
+-             << "connected" << "\n    " << (standalone ? "binaural" : "monaural") << " "
+-             << (side ? "right" : "left") << " " << loghex(device.hi_sync_id) << std::endl;
+-      stream << "    Trigger dropped counts                                 : "
+-             << device.audio_stats.trigger_drop_count
+-             << "\n    Packet dropped counts                                  : "
+-             << device.audio_stats.packet_drop_count
+-             << "\n    Packet counts (send/flush)                             : "
+-             << device.audio_stats.packet_send_count << " / "
+-             << device.audio_stats.packet_flush_count
+-             << "\n    Frame counts (sent/flush)                              : "
+-             << device.audio_stats.frame_send_count << " / " << device.audio_stats.frame_flush_count
++      uint16_t current_credit = L2CAP_LE_CREDIT_MAX;
++      uint16_t queued_l2cap_packets = 0;
++      uint16_t l2cap_cid = 0;
++      if (device.gap_handle != GAP_INVALID_HANDLE) {
++        l2cap_cid = GAP_ConnGetL2CAPCid(device.gap_handle);
++        current_credit = stack::l2cap::get_interface().L2CA_GetPeerLECocCredit(
++                device.address, l2cap_cid);
++        queued_l2cap_packets = stack::l2cap::get_interface().L2CA_FlushChannel(
++                l2cap_cid, L2CAP_FLUSH_CHANS_GET);
++      }
++      stream << "  " << device.address.ToString() << " "
++             << (device.accepting_audio ? "" : "not ") << "connected"
++             << "\n    " << (standalone ? "binaural" : "monaural") << " "
++             << (side ? "right" : "left") << " " << loghex(device.hi_sync_id)
+              << std::endl;
++      stream
++          << "    Trigger dropped counts                                 : "
++          << device.audio_stats.trigger_drop_count
++          << "\n    Packet dropped counts                                  : "
++          << device.audio_stats.packet_drop_count
++          << "\n    Packet counts (send/flush)                             : "
++          << device.audio_stats.packet_send_count << " / "
++          << device.audio_stats.packet_flush_count
++          << "\n    Frame counts (sent/flush)                              : "
++          << device.audio_stats.frame_send_count << " / "
++          << device.audio_stats.frame_flush_count
++          << "\n    ASHA L2CAP CID                                         : "
++          << l2cap_cid
++          << "\n    Peer L2CAP credits (current / initial)                 : "
++          << current_credit << " / " << init_credit
++           << "\n    Queued ASHA L2CAP packets                              : "
++           << queued_l2cap_packets << std::endl;
+ 
+       DumpRssi(fd, device);
+     }
+@@ -2031,7 +2050,7 @@ private:
+ 
+   uint16_t default_data_interval_ms;
+ 
+-  uint16_t init_credit;
++  uint16_t init_credit = 0;
+ 
+   HearingDevices hearingDevices;
+ 
+diff --git a/system/bta/hearing_aid/hearing_aid_audio_source.cc b/system/bta/hearing_aid/hearing_aid_audio_source.cc
+index 216f1e0f67..247011d25e 100644
+--- a/system/bta/hearing_aid/hearing_aid_audio_source.cc
++++ b/system/bta/hearing_aid/hearing_aid_audio_source.cc
+@@ -18,17 +18,30 @@
+ 
+ #define LOG_TAG "bluetooth-asha"
+ 
++#include <arpa/inet.h>
+ #include <base/files/file_util.h>
++#include <base/logging.h>
+ #include <bluetooth/log.h>
++#include <errno.h>
++#include <ifaddrs.h>
++#include <net/if.h>
++#include <netinet/in.h>
++#include <netinet/tcp.h>
++#include <openssl/rand.h>
++#include <sys/socket.h>
++#include <unistd.h>
+ #include <com_android_bluetooth_flags.h>
+ #include <stdio.h>
+ 
++#include <array>
+ #include <chrono>
+ #include <cstddef>
+ #include <cstdint>
++#include <cstring>
+ #include <memory>
+ #include <ostream>
+ #include <sstream>
++#include <string>
+ #include <vector>
+ 
+ #include "audio_hal_interface/hearing_aid_software_encoding.h"
+@@ -51,6 +64,860 @@ int num_channels = 2;
+ bluetooth::common::RepeatingTimer audio_timer;
+ HearingAidAudioReceiver* localAudioReceiver = nullptr;
+ 
++// AshaOS direct audio v2 is exposed while an ASHA AudioTrack session is active.
++// The authorized PC can reach it through an explicit ADB forward to Android
++// loopback or through TCP/UDP listeners bound to the exact IPv4 addresses of
++// active USB-tether, Wi-Fi and Bluetooth-PAN interfaces. It is never bound to
++// a wildcard address.
++// Every record carries a fresh random per-session nonce obtained through
++// privileged dumpsys, so stale records from an earlier session are rejected.
++//
++// The payload is the exact input expected by the AOSP ASHA encoder: signed
++// PCM16 little-endian, 16 kHz, stereo, in 10 ms units. Android retains G.722
++// encoding, ASHA sequencing, L2CAP credit handling, pairing, and encryption.
++constexpr uint32_t kDirectAudioMagic = 0x32444141;  // Little-endian "AAD2".
++constexpr uint16_t kDirectAudioVersion = 2;
++constexpr uint16_t kDirectAudioHeaderBytes = 32;
++constexpr uint16_t kDirectAudioFramesPerRecord = 160;
++constexpr uint8_t kDirectAudioChannels = 2;
++constexpr uint16_t kDirectAudioPort = 48101;
++constexpr size_t kDirectAudioNonceBytes = 16;
++constexpr size_t kDirectAudioPcmBytes =
++    kDirectAudioFramesPerRecord * kDirectAudioChannels * sizeof(int16_t);
++constexpr size_t kDirectAudioRecordBytes =
++    kDirectAudioHeaderBytes + kDirectAudioPcmBytes;
++constexpr size_t kDirectAudioQueueRecords = 32;
++constexpr size_t kDirectAudioMinFutureMs = 70;
++constexpr size_t kDirectAudioMaxFutureMs = 300;
++constexpr size_t kDirectAudioUnderflowGrowthMs = 5;
++constexpr size_t kDirectAudioPcmBytesPerMs = kDirectAudioPcmBytes / 10;
++constexpr size_t kDirectAudioTrimQuantumMs = 1;
++constexpr size_t kDirectAudioTrimQuantumBytes =
++    kDirectAudioPcmBytesPerMs * kDirectAudioTrimQuantumMs;
++constexpr size_t kDirectAudioStreamRecords = 8;
++constexpr uint64_t kDirectAudioActiveTimeoutUs = 500000;
++constexpr uint64_t kDirectAudioAuthenticationTimeoutUs = 500000;
++constexpr size_t kDirectAudioAnomalyCapacity = 256;
++constexpr uint8_t kDirectAudioRecordTypePcm = 0;
++constexpr uint8_t kDirectAudioRecordTypeConfig = 1;
++constexpr size_t kDirectAudioMinConfigurableFutureMs = 1;
++constexpr size_t kDirectAudioBufferStepMs = 1;
++
++#pragma pack(push, 1)
++struct DirectAudioHeader {
++  uint32_t magic;
++  uint16_t protocol_version;
++  uint16_t header_bytes;
++  uint32_t sequence;
++  uint8_t session_nonce[kDirectAudioNonceBytes];
++  uint16_t frame_count;
++  uint8_t channels;
++  uint8_t reserved;
++};
++
++struct DirectAudioConfig {
++  uint16_t buffer_ms;
++  uint8_t adaptive_enabled;
++  uint8_t reserved[5];
++};
++#pragma pack(pop)
++
++static_assert(sizeof(DirectAudioHeader) == kDirectAudioHeaderBytes);
++static_assert(kDirectAudioRecordBytes == 672);
++static_assert(kDirectAudioPcmBytes % 10 == 0);
++static_assert(sizeof(DirectAudioConfig) == 8);
++static_assert(kDirectAudioTrimQuantumBytes %
++                  (kDirectAudioChannels * sizeof(int16_t)) ==
++              0);
++static_assert(kDirectAudioQueueRecords * 10 >= kDirectAudioMaxFutureMs + 20);
++
++struct DirectAudioStats {
++  uint64_t accepted_connections;
++  uint64_t accepted_records;
++  uint64_t authentication_failures;
++  uint64_t duplicate_or_old_records;
++  uint64_t unauthenticated_timeouts;
++  uint64_t sequence_gaps;
++  uint64_t latency_records_dropped;
++  uint64_t playback_underflows;
++  uint64_t pcm_ticks_used;
++  uint64_t last_underflow_us;
++  uint64_t last_underflow_gap_us;
++  uint64_t last_record_gap_us;
++  uint64_t max_record_gap_us;
++  uint64_t record_gaps_over_25ms;
++  uint64_t record_gaps_over_50ms;
++  uint64_t record_gaps_over_100ms;
++  uint64_t record_gaps_over_150ms;
++  uint64_t record_gaps_over_200ms;
++  uint64_t buffer_growth_events;
++  uint64_t rebuffer_completions;
++  uint64_t rebuffer_silence_ticks;
++  uint64_t hal_drain_ticks;
++  uint64_t hal_drain_bytes;
++  uint64_t configuration_updates;
++
++  void Reset() { *this = {}; }
++};
++
++enum class DirectAudioAnomalyType : uint8_t {
++  kClientConnected,
++  kClientDisconnected,
++  kAuthenticationFailure,
++  kDuplicateRecord,
++  kSequenceGap,
++  kInputGap,
++  kQueueDrop,
++  kLatencyTrim,
++  kRebufferReady,
++  kUnderflow,
++  kConfiguration,
++};
++
++struct DirectAudioAnomaly {
++  uint64_t timestamp_us;
++  DirectAudioAnomalyType type;
++  uint32_t sequence;
++  uint64_t gap_us;
++  uint32_t pcm_before_bytes;
++  uint32_t pcm_after_bytes;
++  uint16_t future_ms;
++  uint64_t detail;
++};
++
++std::array<DirectAudioAnomaly, kDirectAudioAnomalyCapacity>
++    direct_audio_anomalies;
++size_t direct_audio_anomaly_write_index = 0;
++size_t direct_audio_anomaly_count = 0;
++uint64_t direct_audio_anomalies_overwritten = 0;
++size_t direct_audio_future_ms = kDirectAudioMinFutureMs;
++
++size_t direct_audio_configured_future_ms = kDirectAudioMinFutureMs;
++bool direct_audio_adaptation_enabled = true;
++const char* direct_audio_anomaly_name(DirectAudioAnomalyType type) {
++  switch (type) {
++    case DirectAudioAnomalyType::kClientConnected:
++      return "client_connected";
++    case DirectAudioAnomalyType::kClientDisconnected:
++      return "client_disconnected";
++    case DirectAudioAnomalyType::kAuthenticationFailure:
++      return "authentication_failure";
++    case DirectAudioAnomalyType::kDuplicateRecord:
++      return "duplicate_or_old_record";
++    case DirectAudioAnomalyType::kSequenceGap:
++      return "sequence_gap";
++    case DirectAudioAnomalyType::kInputGap:
++      return "input_gap";
++    case DirectAudioAnomalyType::kQueueDrop:
++      return "queue_drop";
++    case DirectAudioAnomalyType::kLatencyTrim:
++      return "latency_trim";
++    case DirectAudioAnomalyType::kUnderflow:
++      return "underflow";
++    case DirectAudioAnomalyType::kRebufferReady:
++      return "rebuffer_ready";
++    case DirectAudioAnomalyType::kConfiguration:
++      return "configuration";
++  }
++  return "unknown";
++}
++
++void reset_direct_audio_anomalies() {
++  direct_audio_anomaly_write_index = 0;
++  direct_audio_anomaly_count = 0;
++  direct_audio_anomalies_overwritten = 0;
++}
++
++void record_direct_audio_anomaly(DirectAudioAnomalyType type, uint32_t sequence,
++                                 uint64_t gap_us, size_t pcm_before_bytes,
++                                 size_t pcm_after_bytes, uint64_t detail) {
++  DirectAudioAnomaly& event =
++      direct_audio_anomalies[direct_audio_anomaly_write_index];
++  event.timestamp_us = bluetooth::common::time_get_os_boottime_us();
++  event.type = type;
++  event.sequence = sequence;
++  event.gap_us = gap_us;
++  event.pcm_before_bytes = static_cast<uint32_t>(pcm_before_bytes);
++  event.pcm_after_bytes = static_cast<uint32_t>(pcm_after_bytes);
++  event.future_ms = static_cast<uint16_t>(direct_audio_future_ms);
++  event.detail = detail;
++
++  direct_audio_anomaly_write_index =
++      (direct_audio_anomaly_write_index + 1) % kDirectAudioAnomalyCapacity;
++  if (direct_audio_anomaly_count < kDirectAudioAnomalyCapacity) {
++    direct_audio_anomaly_count++;
++  } else {
++    direct_audio_anomalies_overwritten++;
++  }
++}
++
++enum class DirectAudioClientTransport : uint8_t {
++  kNone,
++  kAdbForwardTcp,
++  kUsbTcp,
++  kUsbUdp,
++  kWifiTcp,
++  kWifiUdp,
++  kBluetoothTcp,
++  kBluetoothUdp,
++};
++
++struct DirectAudioListener {
++  int fd;
++  DirectAudioClientTransport transport;
++  bool datagram;
++  std::string interface_name;
++  std::string address;
++};
++
++std::vector<DirectAudioListener> direct_audio_listeners;
++int direct_audio_client_fd = -1;
++DirectAudioClientTransport direct_audio_client_transport =
++    DirectAudioClientTransport::kNone;
++sockaddr_in direct_audio_udp_peer = {};
++bool direct_audio_udp_peer_set = false;
++std::array<uint8_t, kDirectAudioNonceBytes> direct_audio_nonce;
++std::array<uint8_t, kDirectAudioRecordBytes * kDirectAudioStreamRecords>
++    direct_audio_stream;
++size_t direct_audio_stream_bytes = 0;
++std::array<uint8_t, kDirectAudioPcmBytes * kDirectAudioQueueRecords>
++    direct_audio_pcm;
++size_t direct_audio_pcm_bytes = 0;
++bool direct_audio_playback_started = false;
++bool direct_audio_have_sequence = false;
++uint32_t direct_audio_last_sequence = 0;
++uint64_t direct_audio_last_record_us = 0;
++uint64_t direct_audio_client_accept_us = 0;
++DirectAudioStats direct_audio_stats;
++
++void reset_direct_audio_buffers() {
++  direct_audio_stream_bytes = 0;
++  direct_audio_pcm_bytes = 0;
++  direct_audio_playback_started = false;
++  direct_audio_have_sequence = false;
++  direct_audio_last_sequence = 0;
++  direct_audio_last_record_us = 0;
++  direct_audio_client_accept_us = 0;
++}
++
++void close_direct_audio_client() {
++  if (direct_audio_client_fd != -1) {
++    close(direct_audio_client_fd);
++    direct_audio_client_fd = -1;
++  }
++  direct_audio_client_transport = DirectAudioClientTransport::kNone;
++  direct_audio_udp_peer = {};
++  direct_audio_udp_peer_set = false;
++  reset_direct_audio_buffers();
++}
++
++void stop_direct_audio_server() {
++  close_direct_audio_client();
++  for (const DirectAudioListener& listener : direct_audio_listeners) {
++    if (listener.fd != -1) close(listener.fd);
++  }
++  direct_audio_listeners.clear();
++  direct_audio_nonce.fill(0);
++}
++
++const char* direct_audio_transport_name(DirectAudioClientTransport transport) {
++  switch (transport) {
++    case DirectAudioClientTransport::kAdbForwardTcp:
++      return "ADB-forward TCP";
++    case DirectAudioClientTransport::kUsbTcp:
++      return "USB TCP";
++    case DirectAudioClientTransport::kUsbUdp:
++      return "USB UDP";
++    case DirectAudioClientTransport::kWifiTcp:
++      return "Wi-Fi TCP";
++    case DirectAudioClientTransport::kWifiUdp:
++      return "Wi-Fi UDP";
++    case DirectAudioClientTransport::kBluetoothTcp:
++      return "Bluetooth PAN TCP";
++    case DirectAudioClientTransport::kBluetoothUdp:
++      return "Bluetooth PAN UDP";
++    case DirectAudioClientTransport::kNone:
++      return "none";
++  }
++  return "unknown";
++}
++
++bool direct_audio_transport_is_udp(DirectAudioClientTransport transport) {
++  return transport == DirectAudioClientTransport::kUsbUdp ||
++         transport == DirectAudioClientTransport::kWifiUdp ||
++         transport == DirectAudioClientTransport::kBluetoothUdp;
++}
++
++bool direct_audio_session_is_recent(uint64_t now_us) {
++  if (direct_audio_last_record_us != 0) {
++    return now_us - direct_audio_last_record_us <= kDirectAudioActiveTimeoutUs;
++  }
++  return direct_audio_client_accept_us != 0 &&
++         now_us - direct_audio_client_accept_us <=
++             kDirectAudioAuthenticationTimeoutUs;
++}
++
++int create_direct_audio_listener(in_addr bind_address, const char* label,
++                                 bool datagram) {
++  int listener = socket(AF_INET,
++                        (datagram ? SOCK_DGRAM : SOCK_STREAM) |
++                            SOCK_NONBLOCK | SOCK_CLOEXEC,
++                        datagram ? IPPROTO_UDP : IPPROTO_TCP);
++  if (listener == -1) {
++    log::warn("AshaOS direct audio {} socket failed: {}", label,
++              strerror(errno));
++    return -1;
++  }
++
++  int enabled = 1;
++  setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, &enabled, sizeof(enabled));
++  sockaddr_in address = {};
++  address.sin_family = AF_INET;
++  address.sin_addr = bind_address;
++  address.sin_port = htons(kDirectAudioPort);
++  if (bind(listener, reinterpret_cast<sockaddr*>(&address), sizeof(address)) ==
++          -1 ||
++      (!datagram && listen(listener, 1) == -1)) {
++    log::warn("AshaOS direct audio {} {} {} failed: {}", label,
++              datagram ? "UDP" : "TCP", kDirectAudioPort, strerror(errno));
++    close(listener);
++    return -1;
++  }
++  return listener;
++}
++
++bool is_usb_tether_interface(const char* name) {
++  return strncmp(name, "rndis", 5) == 0 || strncmp(name, "ncm", 3) == 0 ||
++         strncmp(name, "usb", 3) == 0;
++}
++
++bool is_wifi_interface(const char* name) {
++  return strncmp(name, "wlan", 4) == 0;
++}
++
++bool is_bluetooth_pan_interface(const char* name) {
++  return strcmp(name, "bt-pan") == 0 || strncmp(name, "bnep", 4) == 0;
++}
++
++void add_direct_audio_listener(in_addr address, const char* interface_name,
++                               const char* address_text,
++                               DirectAudioClientTransport transport,
++                               bool datagram) {
++  int fd = create_direct_audio_listener(address, interface_name, datagram);
++  if (fd == -1) return;
++  direct_audio_listeners.push_back(
++      {fd, transport, datagram, interface_name, address_text});
++  log::info("AshaOS direct audio ready on {}@{} {} {}", interface_name,
++            address_text, datagram ? "UDP" : "TCP", kDirectAudioPort);
++}
++
++void add_direct_audio_network_listeners() {
++  ifaddrs* interfaces = nullptr;
++  if (getifaddrs(&interfaces) == -1) {
++    log::warn("AshaOS direct audio cannot enumerate interfaces: {}",
++              strerror(errno));
++    return;
++  }
++
++  for (ifaddrs* current = interfaces; current != nullptr;
++       current = current->ifa_next) {
++    if (current->ifa_addr == nullptr ||
++        current->ifa_addr->sa_family != AF_INET ||
++        (current->ifa_flags & IFF_UP) == 0 ||
++        (current->ifa_flags & IFF_LOOPBACK) != 0) {
++      continue;
++    }
++    const bool usb = is_usb_tether_interface(current->ifa_name);
++    const bool wifi = is_wifi_interface(current->ifa_name);
++    const bool bluetooth = is_bluetooth_pan_interface(current->ifa_name);
++    if (!usb && !wifi && !bluetooth) continue;
++    const auto* candidate =
++        reinterpret_cast<const sockaddr_in*>(current->ifa_addr);
++    if (candidate->sin_addr.s_addr == htonl(INADDR_ANY)) continue;
++
++    char text[INET_ADDRSTRLEN] = {};
++    if (inet_ntop(AF_INET, &candidate->sin_addr, text, sizeof(text)) ==
++        nullptr) {
++      continue;
++    }
++    DirectAudioClientTransport tcp_transport =
++        usb ? DirectAudioClientTransport::kUsbTcp
++            : (wifi ? DirectAudioClientTransport::kWifiTcp
++                    : DirectAudioClientTransport::kBluetoothTcp);
++    DirectAudioClientTransport udp_transport =
++        usb ? DirectAudioClientTransport::kUsbUdp
++            : (wifi ? DirectAudioClientTransport::kWifiUdp
++                    : DirectAudioClientTransport::kBluetoothUdp);
++    add_direct_audio_listener(candidate->sin_addr, current->ifa_name, text,
++                              tcp_transport, false);
++    add_direct_audio_listener(candidate->sin_addr, current->ifa_name, text,
++                              udp_transport, true);
++  }
++  freeifaddrs(interfaces);
++}
++
++void start_direct_audio_server() {
++  stop_direct_audio_server();
++  direct_audio_stats.Reset();
++  reset_direct_audio_anomalies();
++  direct_audio_future_ms = kDirectAudioMinFutureMs;
++  direct_audio_configured_future_ms = kDirectAudioMinFutureMs;
++  direct_audio_adaptation_enabled = true;
++
++  if (RAND_bytes(direct_audio_nonce.data(), direct_audio_nonce.size()) != 1) {
++    log::warn("AshaOS direct audio disabled: cannot create session nonce");
++    direct_audio_nonce.fill(0);
++    return;
++  }
++
++  in_addr loopback = {};
++  loopback.s_addr = htonl(INADDR_LOOPBACK);
++  int loopback_listener =
++      create_direct_audio_listener(loopback, "loopback", false);
++  if (loopback_listener != -1) {
++    direct_audio_listeners.push_back(
++        {loopback_listener, DirectAudioClientTransport::kAdbForwardTcp, false,
++         "lo", "127.0.0.1"});
++    log::info(
++        "AshaOS direct audio ready on loopback TCP {} for this ASHA session",
++        kDirectAudioPort);
++  }
++
++  add_direct_audio_network_listeners();
++
++  if (direct_audio_listeners.empty()) {
++    log::warn("AshaOS direct audio disabled: no listener could start");
++    direct_audio_nonce.fill(0);
++  }
++}
++
++bool constant_time_nonce_matches(const uint8_t* received) {
++  uint8_t difference = 0;
++  for (size_t i = 0; i < direct_audio_nonce.size(); i++) {
++    difference |= received[i] ^ direct_audio_nonce[i];
++  }
++  return difference == 0;
++}
++
++bool accept_direct_audio_client_from(int listener,
++                                     DirectAudioClientTransport transport) {
++  if (listener == -1) return false;
++  sockaddr_in source = {};
++  socklen_t source_length = sizeof(source);
++  int candidate = accept4(listener, reinterpret_cast<sockaddr*>(&source),
++                          &source_length, SOCK_NONBLOCK | SOCK_CLOEXEC);
++  if (candidate == -1) {
++    if (errno != EAGAIN && errno != EWOULDBLOCK) {
++      log::warn("AshaOS direct audio accept failed: {}", strerror(errno));
++    }
++    return false;
++  }
++
++  if (source.sin_family != AF_INET ||
++      (transport == DirectAudioClientTransport::kAdbForwardTcp &&
++       source.sin_addr.s_addr != htonl(INADDR_LOOPBACK))) {
++    close(candidate);
++    return false;
++  }
++  int enabled = 1;
++  setsockopt(candidate, IPPROTO_TCP, TCP_NODELAY, &enabled, sizeof(enabled));
++  direct_audio_client_fd = candidate;
++  direct_audio_client_transport = transport;
++  reset_direct_audio_buffers();
++  direct_audio_client_accept_us = bluetooth::common::time_get_os_boottime_us();
++  direct_audio_stats.accepted_connections++;
++  record_direct_audio_anomaly(DirectAudioAnomalyType::kClientConnected, 0, 0, 0,
++                              0, direct_audio_stats.accepted_connections);
++  log::info("AshaOS direct audio {} client connected",
++            direct_audio_transport_name(transport));
++  return true;
++}
++
++void accept_direct_audio_client() {
++  if (direct_audio_client_fd != -1) return;
++  uint64_t now_us = bluetooth::common::time_get_os_boottime_us();
++  if (direct_audio_transport_is_udp(direct_audio_client_transport) &&
++      direct_audio_session_is_recent(now_us)) {
++    return;
++  }
++  if (direct_audio_transport_is_udp(direct_audio_client_transport)) {
++    close_direct_audio_client();
++  }
++  for (const DirectAudioListener& listener : direct_audio_listeners) {
++    if (listener.datagram) continue;
++    if (accept_direct_audio_client_from(listener.fd, listener.transport)) return;
++  }
++}
++
++bool append_direct_audio_pcm(const uint8_t* pcm) {
++  bool dropped = false;
++  if (direct_audio_pcm_bytes + kDirectAudioPcmBytes > direct_audio_pcm.size()) {
++    memmove(direct_audio_pcm.data(),
++            direct_audio_pcm.data() + kDirectAudioPcmBytes,
++            direct_audio_pcm_bytes - kDirectAudioPcmBytes);
++    direct_audio_pcm_bytes -= kDirectAudioPcmBytes;
++    direct_audio_stats.latency_records_dropped++;
++    dropped = true;
++  }
++  memcpy(direct_audio_pcm.data() + direct_audio_pcm_bytes, pcm,
++         kDirectAudioPcmBytes);
++  direct_audio_pcm_bytes += kDirectAudioPcmBytes;
++  return dropped;
++}
++
++bool process_direct_audio_record(const uint8_t* record) {
++  DirectAudioHeader header;
++  memcpy(&header, record, sizeof(header));
++  if (header.magic != kDirectAudioMagic ||
++      header.protocol_version != kDirectAudioVersion ||
++      header.header_bytes != kDirectAudioHeaderBytes ||
++      !constant_time_nonce_matches(header.session_nonce)) {
++    direct_audio_stats.authentication_failures++;
++    record_direct_audio_anomaly(DirectAudioAnomalyType::kAuthenticationFailure,
++                                header.sequence, 0, direct_audio_pcm_bytes,
++                                direct_audio_pcm_bytes, header.magic);
++    return false;
++  }
++
++  if (header.reserved == kDirectAudioRecordTypeConfig) {
++    DirectAudioConfig config;
++    memcpy(&config, record + kDirectAudioHeaderBytes, sizeof(config));
++    bool reserved_clear = true;
++    for (uint8_t value : config.reserved) {
++      reserved_clear = reserved_clear && value == 0;
++    }
++    if (header.frame_count != 0 || header.channels != 0 ||
++        config.buffer_ms < kDirectAudioMinConfigurableFutureMs ||
++        config.buffer_ms > kDirectAudioMaxFutureMs ||
++        config.buffer_ms % kDirectAudioBufferStepMs != 0 ||
++        config.adaptive_enabled > 1 || !reserved_clear) {
++      direct_audio_stats.authentication_failures++;
++      record_direct_audio_anomaly(
++          DirectAudioAnomalyType::kAuthenticationFailure, header.sequence, 0,
++          direct_audio_pcm_bytes, direct_audio_pcm_bytes, header.reserved);
++      return false;
++    }
++    direct_audio_configured_future_ms = config.buffer_ms;
++    direct_audio_future_ms = config.buffer_ms;
++    direct_audio_adaptation_enabled = config.adaptive_enabled != 0;
++    direct_audio_playback_started = false;
++    direct_audio_stats.configuration_updates++;
++    record_direct_audio_anomaly(DirectAudioAnomalyType::kConfiguration,
++                                header.sequence, 0, direct_audio_pcm_bytes,
++                                direct_audio_pcm_bytes,
++                                direct_audio_adaptation_enabled ? 1 : 0);
++    log::info("AshaOS direct buffer configured: {} ms, adaptation {}",
++              config.buffer_ms,
++              direct_audio_adaptation_enabled ? "enabled" : "disabled");
++    return true;
++  }
++
++  if (header.reserved != kDirectAudioRecordTypePcm ||
++      header.frame_count != kDirectAudioFramesPerRecord ||
++      header.channels != kDirectAudioChannels) {
++    direct_audio_stats.authentication_failures++;
++    return false;
++  }
++
++  if (direct_audio_have_sequence) {
++    int32_t delta =
++        static_cast<int32_t>(header.sequence - direct_audio_last_sequence);
++    if (delta <= 0) {
++      direct_audio_stats.duplicate_or_old_records++;
++      record_direct_audio_anomaly(DirectAudioAnomalyType::kDuplicateRecord,
++                                  header.sequence, 0, direct_audio_pcm_bytes,
++                                  direct_audio_pcm_bytes,
++                                  direct_audio_last_sequence);
++      return true;
++    }
++    if (delta > 1) {
++      direct_audio_stats.sequence_gaps += delta - 1;
++      record_direct_audio_anomaly(DirectAudioAnomalyType::kSequenceGap,
++                                  header.sequence, 0, direct_audio_pcm_bytes,
++                                  direct_audio_pcm_bytes,
++                                  static_cast<uint64_t>(delta - 1));
++    }
++  }
++  direct_audio_have_sequence = true;
++  direct_audio_last_sequence = header.sequence;
++
++  uint64_t received_us = bluetooth::common::time_get_os_boottime_us();
++  uint64_t gap_us = 0;
++  if (direct_audio_last_record_us != 0 &&
++      received_us >= direct_audio_last_record_us) {
++    gap_us = received_us - direct_audio_last_record_us;
++    direct_audio_stats.last_record_gap_us = gap_us;
++    if (gap_us > direct_audio_stats.max_record_gap_us) {
++      direct_audio_stats.max_record_gap_us = gap_us;
++    }
++    if (gap_us > 25000) direct_audio_stats.record_gaps_over_25ms++;
++    if (gap_us > 50000) direct_audio_stats.record_gaps_over_50ms++;
++    if (gap_us > 100000) direct_audio_stats.record_gaps_over_100ms++;
++    if (gap_us > 150000) direct_audio_stats.record_gaps_over_150ms++;
++    if (gap_us > 200000) direct_audio_stats.record_gaps_over_200ms++;
++  }
++  direct_audio_last_record_us = received_us;
++
++  size_t pcm_before_bytes = direct_audio_pcm_bytes;
++  bool queue_dropped =
++      append_direct_audio_pcm(record + kDirectAudioHeaderBytes);
++  direct_audio_stats.accepted_records++;
++  if (gap_us > 25000) {
++    record_direct_audio_anomaly(DirectAudioAnomalyType::kInputGap,
++                                header.sequence, gap_us, pcm_before_bytes,
++                                direct_audio_pcm_bytes, 0);
++  }
++  if (queue_dropped) {
++    record_direct_audio_anomaly(DirectAudioAnomalyType::kQueueDrop,
++                                header.sequence, gap_us, pcm_before_bytes,
++                                direct_audio_pcm_bytes, 1);
++  }
++  return true;
++}
++
++bool direct_audio_record_has_valid_session(const uint8_t* record,
++                                           size_t record_bytes) {
++  if (record_bytes != kDirectAudioRecordBytes) return false;
++  DirectAudioHeader header;
++  memcpy(&header, record, sizeof(header));
++  return header.magic == kDirectAudioMagic &&
++         header.protocol_version == kDirectAudioVersion &&
++         header.header_bytes == kDirectAudioHeaderBytes &&
++         constant_time_nonce_matches(header.session_nonce);
++}
++
++bool same_udp_peer(const sockaddr_in& first, const sockaddr_in& second) {
++  return first.sin_family == second.sin_family &&
++         first.sin_port == second.sin_port &&
++         first.sin_addr.s_addr == second.sin_addr.s_addr;
++}
++
++void drain_direct_audio_datagrams() {
++  std::array<uint8_t, kDirectAudioRecordBytes> record;
++  for (const DirectAudioListener& listener : direct_audio_listeners) {
++    if (!listener.datagram) continue;
++    for (int read_index = 0; read_index < 32; read_index++) {
++      sockaddr_in source = {};
++      socklen_t source_length = sizeof(source);
++      ssize_t received = recvfrom(
++          listener.fd, record.data(), record.size(), 0,
++          reinterpret_cast<sockaddr*>(&source), &source_length);
++      if (received == -1) {
++        if (errno != EAGAIN && errno != EWOULDBLOCK) {
++          log::warn("AshaOS direct audio UDP receive failed on {}: {}",
++                    listener.interface_name, strerror(errno));
++        }
++        break;
++      }
++      if (source.sin_family != AF_INET ||
++          !direct_audio_record_has_valid_session(
++              record.data(), static_cast<size_t>(received))) {
++        direct_audio_stats.authentication_failures++;
++        continue;
++      }
++
++      uint64_t now_us = bluetooth::common::time_get_os_boottime_us();
++      bool current_active = direct_audio_session_is_recent(now_us);
++      bool same_session = direct_audio_udp_peer_set &&
++                          direct_audio_client_transport == listener.transport &&
++                          same_udp_peer(direct_audio_udp_peer, source);
++      if (current_active && !same_session) continue;
++
++      bool new_session = !same_session;
++      if (new_session) {
++        close_direct_audio_client();
++        direct_audio_client_transport = listener.transport;
++        direct_audio_udp_peer = source;
++        direct_audio_udp_peer_set = true;
++        direct_audio_client_accept_us = now_us;
++        direct_audio_stats.accepted_connections++;
++        record_direct_audio_anomaly(DirectAudioAnomalyType::kClientConnected,
++                                    0, 0, 0, 0,
++                                    direct_audio_stats.accepted_connections);
++        log::info("AshaOS direct audio {} client selected",
++                  direct_audio_transport_name(listener.transport));
++      }
++      if (!process_direct_audio_record(record.data()) && new_session) {
++        close_direct_audio_client();
++      }
++    }
++  }
++}
++
++void parse_direct_audio_stream() {
++  while (direct_audio_stream_bytes >= kDirectAudioRecordBytes) {
++    if (!process_direct_audio_record(direct_audio_stream.data())) {
++      log::warn("AshaOS direct audio client failed session authentication");
++      close_direct_audio_client();
++      return;
++    }
++    direct_audio_stream_bytes -= kDirectAudioRecordBytes;
++    if (direct_audio_stream_bytes != 0) {
++      memmove(direct_audio_stream.data(),
++              direct_audio_stream.data() + kDirectAudioRecordBytes,
++              direct_audio_stream_bytes);
++    }
++  }
++}
++
++void drain_direct_audio_stream() {
++  accept_direct_audio_client();
++  if (direct_audio_client_fd == -1) return;
++
++  uint64_t now_us = bluetooth::common::time_get_os_boottime_us();
++  if (direct_audio_last_record_us == 0 && direct_audio_client_accept_us != 0 &&
++      now_us - direct_audio_client_accept_us >
++          kDirectAudioAuthenticationTimeoutUs) {
++    direct_audio_stats.unauthenticated_timeouts++;
++    record_direct_audio_anomaly(DirectAudioAnomalyType::kClientDisconnected,
++                                direct_audio_last_sequence,
++                                now_us - direct_audio_client_accept_us,
++                                direct_audio_pcm_bytes, 0, ETIMEDOUT);
++    log::warn("AshaOS direct audio unauthenticated client timed out");
++    close_direct_audio_client();
++    return;
++  }
++
++  for (int read_index = 0; read_index < 32; read_index++) {
++    size_t available = direct_audio_stream.size() - direct_audio_stream_bytes;
++    if (available == 0) {
++      record_direct_audio_anomaly(DirectAudioAnomalyType::kClientDisconnected,
++                                  direct_audio_last_sequence, 0,
++                                  direct_audio_pcm_bytes, 0, ENOBUFS);
++      log::warn("AshaOS direct audio framing buffer overflow");
++      close_direct_audio_client();
++      return;
++    }
++    ssize_t received = recv(
++        direct_audio_client_fd,
++        direct_audio_stream.data() + direct_audio_stream_bytes, available, 0);
++    if (received > 0) {
++      direct_audio_stream_bytes += received;
++      parse_direct_audio_stream();
++      if (direct_audio_client_fd == -1) return;
++      continue;
++    }
++    if (received == 0) {
++      uint64_t disconnect_us = bluetooth::common::time_get_os_boottime_us();
++      record_direct_audio_anomaly(
++          DirectAudioAnomalyType::kClientDisconnected,
++          direct_audio_last_sequence,
++          direct_audio_last_record_us != 0
++              ? disconnect_us - direct_audio_last_record_us
++              : 0,
++          direct_audio_pcm_bytes, 0, 0);
++      log::info("AshaOS direct audio client disconnected");
++      close_direct_audio_client();
++      return;
++    }
++    if (errno != EAGAIN && errno != EWOULDBLOCK) {
++      int receive_error = errno;
++      record_direct_audio_anomaly(DirectAudioAnomalyType::kClientDisconnected,
++                                  direct_audio_last_sequence, 0,
++                                  direct_audio_pcm_bytes, 0, receive_error);
++      log::warn("AshaOS direct audio receive failed: {}",
++                strerror(receive_error));
++      close_direct_audio_client();
++    }
++    return;
++  }
++}
++
++bool read_direct_audio(uint8_t* output, size_t output_bytes) {
++  if (sample_rate != 16000 || bit_rate != 16 || num_channels != 2) {
++    return false;
++  }
++
++  drain_direct_audio_datagrams();
++  drain_direct_audio_stream();
++  uint64_t now_us = bluetooth::common::time_get_os_boottime_us();
++  if (direct_audio_last_record_us == 0 ||
++      now_us - direct_audio_last_record_us > kDirectAudioActiveTimeoutUs) {
++    direct_audio_pcm_bytes = 0;
++    direct_audio_playback_started = false;
++    return false;
++  }
++
++  // Keep the configured 1-300 ms reserve ahead of the next ASHA audio tick.
++  // When adaptation is enabled, each playback underflow raises it by exactly
++  // 5 ms. One millisecond is exactly 16 stereo PCM frames, so queue trimming
++  // can honor every selectable value. Startup and every recovery wait until
++  // that reserve has actually accumulated; while waiting,
++  // valid silence keeps the G.722/ASHA packet cadence continuous.
++  size_t required_before_read =
++      output_bytes + kDirectAudioPcmBytesPerMs * direct_audio_future_ms;
++  size_t pcm_before_trim = direct_audio_pcm_bytes;
++  while (direct_audio_pcm_bytes > required_before_read) {
++    memmove(direct_audio_pcm.data(),
++            direct_audio_pcm.data() + kDirectAudioTrimQuantumBytes,
++            direct_audio_pcm_bytes - kDirectAudioTrimQuantumBytes);
++    direct_audio_pcm_bytes -= kDirectAudioTrimQuantumBytes;
++    direct_audio_stats.latency_records_dropped++;
++  }
++  if (direct_audio_pcm_bytes != pcm_before_trim) {
++    record_direct_audio_anomaly(
++        DirectAudioAnomalyType::kLatencyTrim, direct_audio_last_sequence,
++        now_us - direct_audio_last_record_us, pcm_before_trim,
++        direct_audio_pcm_bytes, pcm_before_trim - direct_audio_pcm_bytes);
++  }
++  if (!direct_audio_playback_started) {
++    if (direct_audio_pcm_bytes < required_before_read) {
++      memset(output, 0, output_bytes);
++      direct_audio_stats.rebuffer_silence_ticks++;
++      return true;
++    }
++    direct_audio_playback_started = true;
++    direct_audio_stats.rebuffer_completions++;
++    record_direct_audio_anomaly(
++        DirectAudioAnomalyType::kRebufferReady, direct_audio_last_sequence,
++        now_us - direct_audio_last_record_us, direct_audio_pcm_bytes,
++        direct_audio_pcm_bytes, required_before_read);
++  }
++
++  if (direct_audio_pcm_bytes < output_bytes) {
++    uint64_t input_gap_us = now_us - direct_audio_last_record_us;
++    direct_audio_stats.last_underflow_gap_us = input_gap_us;
++    if (direct_audio_playback_started && direct_audio_adaptation_enabled &&
++        direct_audio_future_ms < kDirectAudioMaxFutureMs) {
++      direct_audio_future_ms += kDirectAudioUnderflowGrowthMs;
++      if (direct_audio_future_ms > kDirectAudioMaxFutureMs) {
++        direct_audio_future_ms = kDirectAudioMaxFutureMs;
++      }
++      direct_audio_stats.buffer_growth_events++;
++    }
++    direct_audio_playback_started = false;
++    direct_audio_stats.playback_underflows++;
++    direct_audio_stats.last_underflow_us = now_us;
++    record_direct_audio_anomaly(DirectAudioAnomalyType::kUnderflow,
++                                direct_audio_last_sequence, input_gap_us,
++                                direct_audio_pcm_bytes, direct_audio_pcm_bytes,
++                                output_bytes);
++    memset(output, 0, output_bytes);
++    direct_audio_stats.rebuffer_silence_ticks++;
++    return true;
++  }
++
++  memcpy(output, direct_audio_pcm.data(), output_bytes);
++  direct_audio_pcm_bytes -= output_bytes;
++  if (direct_audio_pcm_bytes != 0) {
++    memmove(direct_audio_pcm.data(), direct_audio_pcm.data() + output_bytes,
++            direct_audio_pcm_bytes);
++  }
++  direct_audio_stats.pcm_ticks_used++;
++  return true;
++}
++
++std::string direct_audio_nonce_hex() {
++  static constexpr char kHex[] = "0123456789abcdef";
++  std::string result;
++  result.reserve(direct_audio_nonce.size() * 2);
++  for (uint8_t value : direct_audio_nonce) {
++    result.push_back(kHex[value >> 4]);
++    result.push_back(kHex[value & 0x0f]);
++  }
++  return result;
++}
++
+ struct AudioHalStats {
+   size_t media_read_total_underflow_bytes;
+   size_t media_read_total_underflow_count;
+@@ -75,9 +942,22 @@ void send_audio_data() {
+ 
+   std::vector<uint8_t> data(bytes_per_tick);
+ 
+-  uint32_t bytes_read = 0;
++  // Always drain Android's standard hearing-aid source. AudioFlinger keeps
++  // writing to this route even while the authenticated PC stream overrides
++  // it; leaving it unread fills the FMQ and blocks AudioFlinger. The direct
++  // source then replaces the drained bytes in-place when it is active.
++  uint32_t platform_bytes_read = 0;
+   if (bluetooth::audio::hearing_aid::is_hal_enabled()) {
+-    bytes_read = bluetooth::audio::hearing_aid::read(data.data(), bytes_per_tick);
++    platform_bytes_read =
++        bluetooth::audio::hearing_aid::read(data.data(), bytes_per_tick);
++  }
++
++  bool using_direct_audio = read_direct_audio(data.data(), bytes_per_tick);
++  uint32_t bytes_read =
++      using_direct_audio ? bytes_per_tick : platform_bytes_read;
++  if (using_direct_audio) {
++    direct_audio_stats.hal_drain_ticks++;
++    direct_audio_stats.hal_drain_bytes += platform_bytes_read;
+   }
+ 
+   log::debug("bytes_read: {}", bytes_read);
+@@ -99,6 +979,7 @@ void start_audio_ticks() {
+     log::fatal("Unsupported data interval: {}", data_interval_ms);
+   }
+ 
++  start_direct_audio_server();
+   if (!com_android_bluetooth_flags_ref_counted_native_wakelock() || !audio_timer.IsScheduled()) {
+     wakelock_acquire();
+   }
+@@ -114,6 +995,7 @@ void stop_audio_ticks() {
+     audio_timer.CancelAndWait();
+     wakelock_release();
+   }
++  stop_direct_audio_server();
+ }
+ 
+ bool hearing_aid_on_resume_req(bool start_media_task) {
+@@ -198,10 +1080,19 @@ void HearingAidAudioSource::CleanUp() {
+   if (bluetooth::audio::hearing_aid::is_hal_enabled()) {
+     bluetooth::audio::hearing_aid::cleanup();
+   }
++  stop_direct_audio_server();
+ }
+ 
+ void HearingAidAudioSource::DebugDump(int fd) {
+   uint64_t now_us = bluetooth::common::time_get_os_boottime_us();
++  bool direct_audio_active =
++      direct_audio_client_transport != DirectAudioClientTransport::kNone &&
++      direct_audio_last_record_us != 0 &&
++      now_us - direct_audio_last_record_us <= kDirectAudioActiveTimeoutUs;
++  const char* direct_audio_state =
++      !direct_audio_active
++          ? "inactive"
++          : (direct_audio_playback_started ? "streaming" : "rebuffering");
+   std::stringstream stream;
+   stream << "  Hearing Aid Audio HAL:"
+          << "\n    Counts (underflow)                                      : "
+@@ -210,9 +1101,107 @@ void HearingAidAudioSource::DebugDump(int fd) {
+          << stats.media_read_total_underflow_bytes
+          << "\n    Last update time ago in ms (underflow)                  : "
+          << (stats.media_read_last_underflow_us > 0
+-                     ? (now_us - stats.media_read_last_underflow_us) / 1000
+-                     : 0)
+-         << std::endl;
++                 ? (unsigned long long)(now_us -
++                                        stats.media_read_last_underflow_us) /
++                       1000
++                 : 0)
++         << "\n  AshaOS direct audio:"
++         << "\n    Bound listeners                                       : ";
++  if (direct_audio_listeners.empty()) {
++    stream << "none";
++  } else {
++    bool first = true;
++    for (const DirectAudioListener& listener : direct_audio_listeners) {
++      if (!first) stream << ", ";
++      first = false;
++      stream << listener.interface_name << "@" << listener.address << ":"
++             << kDirectAudioPort << "/"
++             << (listener.datagram ? "UDP" : "TCP");
++    }
++  }
++  stream << "\n    Authenticated client                                  : "
++         << (direct_audio_active ? "yes" : "no")
++         << "\n    Active transport                                      : "
++         << direct_audio_transport_name(direct_audio_client_transport)
++         << "\n    Direct playback state                                 : "
++         << direct_audio_state
++         << "\n    Session nonce                                         : "
++         << direct_audio_nonce_hex()
++         << "\n    Connections / accepted records                       : "
++         << direct_audio_stats.accepted_connections << " / "
++         << direct_audio_stats.accepted_records
++         << "\n    Authentication failures                              : "
++         << direct_audio_stats.authentication_failures
++         << "\n    Unauthenticated client timeouts                       : "
++         << direct_audio_stats.unauthenticated_timeouts
++         << "\n    Duplicate-old records / sequence gaps                : "
++         << direct_audio_stats.duplicate_or_old_records << " / "
++         << direct_audio_stats.sequence_gaps
++         << "\n    Latency-control 1 ms quanta dropped                  : "
++         << direct_audio_stats.latency_records_dropped
++         << "\n    Direct buffer configured / active                    : "
++         << direct_audio_configured_future_ms << " / " << direct_audio_future_ms
++         << " ms"
++         << "\n    Direct buffer adaptation                             : "
++         << (direct_audio_adaptation_enabled ? "enabled (+5 ms/underflow)"
++                                             : "disabled (fixed)")
++         << "\n    Configuration updates                                : "
++         << direct_audio_stats.configuration_updates
++         << "\n    Buffer +5 ms growth events                           : "
++         << direct_audio_stats.buffer_growth_events
++         << "\n    Rebuffer completions / silence ticks                 : "
++         << direct_audio_stats.rebuffer_completions << " / "
++         << direct_audio_stats.rebuffer_silence_ticks
++         << "\n    HAL drain ticks / bytes while direct                 : "
++         << direct_audio_stats.hal_drain_ticks << " / "
++         << direct_audio_stats.hal_drain_bytes
++         << "\n    Input gap last / max                                 : "
++         << direct_audio_stats.last_record_gap_us / 1000 << " / "
++         << direct_audio_stats.max_record_gap_us / 1000 << " ms"
++         << "\n    Input gaps >25/50/100/150/200 ms                    : "
++         << direct_audio_stats.record_gaps_over_25ms << " / "
++         << direct_audio_stats.record_gaps_over_50ms << " / "
++         << direct_audio_stats.record_gaps_over_100ms << " / "
++         << direct_audio_stats.record_gaps_over_150ms << " / "
++         << direct_audio_stats.record_gaps_over_200ms
++         << "\n    Last underflow input gap                              : "
++         << direct_audio_stats.last_underflow_gap_us / 1000 << " ms"
++         << "\n    PCM ticks used / underflows                          : "
++         << direct_audio_stats.pcm_ticks_used << " / "
++         << direct_audio_stats.playback_underflows
++         << "\n    Queued PCM                                            : "
++         << direct_audio_pcm_bytes << " bytes ("
++         << direct_audio_pcm_bytes * 10 / kDirectAudioPcmBytes << " ms)"
++         << "\n    Last record ago                                       : "
++         << (direct_audio_last_record_us > 0
++                 ? (unsigned long long)(now_us - direct_audio_last_record_us) /
++                       1000
++                 : 0)
++         << " ms"
++         << "\n    Anomaly ring stored / overwritten                    : "
++         << direct_audio_anomaly_count << " / "
++         << direct_audio_anomalies_overwritten
++         << "\n    Anomalies (age_ms type seq gap_us pcm_before->after "
++            "future_ms detail):";
++
++  size_t anomaly_start =
++      (direct_audio_anomaly_write_index + kDirectAudioAnomalyCapacity -
++       direct_audio_anomaly_count) %
++      kDirectAudioAnomalyCapacity;
++  for (size_t anomaly_offset = 0; anomaly_offset < direct_audio_anomaly_count;
++       anomaly_offset++) {
++    const DirectAudioAnomaly& event =
++        direct_audio_anomalies[(anomaly_start + anomaly_offset) %
++                               kDirectAudioAnomalyCapacity];
++    uint64_t age_ms =
++        now_us >= event.timestamp_us ? (now_us - event.timestamp_us) / 1000 : 0;
++    stream << "\n      " << age_ms << " "
++           << direct_audio_anomaly_name(event.type) << " " << event.sequence
++           << " " << event.gap_us << " " << event.pcm_before_bytes << "->"
++           << event.pcm_after_bytes << " " << event.future_ms << " "
++           << event.detail;
++  }
++  stream << std::endl;
+   dprintf(fd, "%s", stream.str().c_str());
+ }
+ 

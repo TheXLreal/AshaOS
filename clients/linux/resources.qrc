@@ -1,0 +1,5 @@
+<RCC>
+  <qresource prefix="/">
+    <file alias="ashaos.png">assets/ashaos.png</file>
+  </qresource>
+</RCC>

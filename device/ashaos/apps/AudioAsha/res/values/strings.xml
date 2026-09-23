@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Audio-Asha</string>
+    <string name="ashaos_title">AshaOS</string>
+    <string name="appearance">Appearance</string>
+    <string name="appearance_title">Appearance and language</string>
+    <string name="theme_setting">Theme</string>
+    <string name="language_setting">Language</string>
+    <string name="theme_system">System</string>
+    <string name="theme_light">Light</string>
+    <string name="theme_dark">Dark</string>
+    <string name="language_system">System</string>
+    <string name="language_english">English</string>
+    <string name="language_russian">Русский</string>
+    <string name="connection_heading">Connect your PC</string>
+    <string name="session_stopped">Stopped · Press Start when ready</string>
+    <string name="session_listening">Listening · Start stays on during silence</string>
+    <string name="session_reconnecting">Start is on · Reconnecting audio</string>
+    <string name="session_starting">Starting · Waiting for the service</string>
+    <string name="help_connection_description">Explain connection modes</string>
+    <string name="help_connection_title">Connection modes</string>
+    <string name="help_connection_body">Direct USB and Direct Wi-Fi send PCM straight to the ASHA stack over TCP or UDP and bypass AudioTrack. UDP avoids TCP retransmission stalls; TCP protects packet order.\n\nThe three modes marked AudioTrack use Android audio routing and usually have more delay.\n\nDirect Bluetooth PAN is experimental: incoming PAN traffic and outgoing ASHA share the Bluetooth radio, so interruptions are more likely. Actual latency depends on the phone, hearing aids and network.</string>
+    <string name="help_jitter_description">Explain jitter buffer</string>
+    <string name="help_jitter_title">Jitter buffer</string>
+    <string name="help_jitter_body">This setting applies only to the UDP modes marked AudioTrack. The Direct TCP and Direct UDP modes use the Direct buffer setting in the desktop sender.</string>
+    <string name="setup_heading">Phone setup</string>
+    <string name="setup_explanation">For Direct USB, connect the cable, enable USB tethering and USB debugging, authorize this PC in the Android prompt, and pair your hearing aids. The PC uses the IP and port shown above. For Wi-Fi or Bluetooth PAN, enable that connection on both devices. Allow Audio-Asha notifications.</string>
+    <string name="open_tether_settings">USB tethering settings</string>
+    <string name="open_developer_settings">Developer options / USB debugging</string>
+    <string name="open_hearing_settings">Hearing devices / accessibility</string>
+    <string name="open_bluetooth_settings">Bluetooth settings</string>
+    <string name="open_wifi_settings">Wi-Fi settings</string>
+    <string name="open_app_settings">App permissions and notifications</string>
+    <string name="settings_unavailable">This settings page is unavailable on this device.</string>
+    <string name="show_diagnostics">Show diagnostics</string>
+    <string name="hide_diagnostics">Hide diagnostics</string>
+    <string name="status_heading">Network audio</string>
+    <string name="connection_mode">Phone connection mode</string>
+    <string name="connection_target_label">Audio-Asha PC target</string>
+    <string name="connection_unavailable">Connection information is unavailable.</string>
+    <string name="connection_endpoint_ready_format">PC target: %1$s\nMode: %2$s\nPhone interface: %3$s\n%4$s</string>
+    <string name="connection_endpoint_unavailable_format">Mode: %1$s\nNot ready: %2$s</string>
+    <string name="copy_connection_endpoint">Copy IP:port</string>
+    <string name="connection_target_copied">IP and port copied.</string>
+    <string name="enable_wifi_guidance">Connect the Pixel to Wi-Fi.</string>
+    <string name="enable_usb_tether_guidance">Enable USB tethering before starting Audio-Asha.</string>
+    <string name="enable_bluetooth_pan_guidance">Enable Bluetooth tethering and connect the PC to the Pixel access point.</string>
+    <string name="pc_settings_udp">PC Sender: direct path OFF; enter the shown IP and port.</string>
+    <string name="pc_settings_direct_tcp">PC Sender: select Direct TCP and enter the shown IP and port.</string>
+    <string name="pc_settings_direct_udp">PC Sender: select Direct UDP and enter the shown IP and port.</string>
+    <string name="mode_wifi_udp">Wi-Fi — UDP / AudioTrack</string>
+    <string name="mode_usb_udp">USB tether — UDP / AudioTrack</string>
+    <string name="mode_bluetooth_udp">Bluetooth PAN — UDP / AudioTrack</string>
+    <string name="mode_direct_usb_tcp">Direct USB — TCP</string>
+    <string name="mode_direct_usb_udp">Direct USB — UDP</string>
+    <string name="mode_direct_wifi_tcp">Direct Wi-Fi — TCP</string>
+    <string name="mode_direct_wifi_udp">Direct Wi-Fi — UDP</string>
+    <string name="mode_direct_bluetooth_tcp">Direct Bluetooth PAN — TCP</string>
+    <string name="mode_direct_bluetooth_udp">Direct Bluetooth PAN — UDP</string>
+    <string-array name="connection_mode_values">
+        <item>@string/mode_wifi_udp</item>
+        <item>@string/mode_usb_udp</item>
+        <item>@string/mode_bluetooth_udp</item>
+        <item>@string/mode_direct_usb_tcp</item>
+        <item>@string/mode_direct_usb_udp</item>
+        <item>@string/mode_direct_wifi_tcp</item>
+        <item>@string/mode_direct_wifi_udp</item>
+        <item>@string/mode_direct_bluetooth_tcp</item>
+        <item>@string/mode_direct_bluetooth_udp</item>
+    </string-array>
+    <string name="audio_streaming_status">Audio streaming: Stopped</string>
+    <string name="bluetooth_asha_status">Bluetooth ASHA: System managed</string>
+    <string name="android_version_format">Android version: %1$s (API %2$d)</string>
+    <string name="device_product_format">Device / product: %1$s / %2$s</string>
+    <string name="application_version_format">Application version: %1$s</string>
+    <string name="udp_port">UDP port</string>
+    <string name="jitter_buffer">Jitter buffer</string>
+    <string name="output_device">Preferred output</string>
+    <string name="start_streaming">Start listening</string>
+    <string name="stop_streaming">Stop</string>
+    <string name="refresh_audio_devices">Refresh outputs</string>
+    <string name="check_audio_devices">Refresh outputs</string>
+    <string name="audio_devices_not_checked">Audio devices have not been checked.</string>
+    <string name="audio_manager_unavailable">Android AudioManager is unavailable.</string>
+    <string name="output_audio_devices_format">Output audio devices: %1$d</string>
+    <string name="audio_device_format">Product: %1$s\nDevice type: %2$s (%3$d)</string>
+    <string name="hearing_aid_present_format">TYPE_HEARING_AID present: %1$s</string>
+    <string name="value_yes">Yes</string>
+    <string name="value_no">No</string>
+    <string name="value_unknown">Unknown</string>
+    <string name="system_default_output">System default</string>
+    <string name="invalid_port">Enter a UDP port from 1 to 65535.</string>
+    <string name="diagnostics_waiting">Streaming diagnostics will appear here.</string>
+    <string name="direct_system_mode">AshaOS Direct — ASHA stack</string>
+    <string name="start_after_boot">Start Audio-Asha after boot</string>
+    <string name="notification_channel_name">Audio-Asha streaming</string>
+    <string name="notification_title">Audio-Asha</string>
+    <string name="notification_listening">Listening on UDP port %1$d</string>
+    <string name="notification_streaming">Streaming network audio on UDP port %1$d</string>
+    <string name="notification_direct_system">System direct ASHA control active; waiting for authenticated direct audio</string>
+    <string name="notification_stop">Stop</string>
+    <string name="notification_permission_denied">Notifications were denied; Android may show the active service only in system task controls.</string>
+    <string name="service_disconnected">Audio-Asha service is stopped or reconnecting.</string>
+    <string name="compatibility_diagnostics">Compatibility diagnostics</string>
+    <string name="compat_installed">Audio-Asha installed</string>
+    <string name="compat_hearing_output">Hearing aid output available</string>
+    <string name="compat_ble_feature">BLE feature available</string>
+    <string name="compat_gatt">Bluetooth GATT manager available</string>
+    <string name="compat_play_services">Google Play Services present</string>
+    <string name="compat_installer">AOSP PackageInstaller present</string>
+    <string name="compat_webview">WebView provider</string>
+    <string name="compat_browser">HTTPS browser handler</string>
+    <string name="compat_accounts">Android account API available</string>
+    <string name="compat_notifications">App notifications enabled</string>
+    <string name="compat_unavailable">Not available</string>
+    <string name="compat_nucleus_missing">Not detected; authorized APK installation not tested</string>
+    <string name="compat_nucleus_detected">Detected as %1$s; launch/login/device compatibility not yet proven</string>
+    <string name="compat_asha_path">ASHA media path</string>
+    <string name="compat_asha_path_value">Android system Bluetooth/audio stack (independent of Nucleus Smart)</string>
+    <string name="compatibility_title">AshaOS app compatibility</string>
+    <string name="refresh_diagnostics">Refresh diagnostics</string>
+    <string name="compatibility_guidance">Nucleus Smart is proprietary Cochlear software and is not included in AshaOS. Install only an authorized copy using Android PackageInstaller. Google Play Services is not added by AshaOS. Nucleus Smart does not carry ASHA media audio; Android Bluetooth and audio routing remain responsible.</string>
+    <string name="jitter_0_ms">0 ms</string>
+    <string name="jitter_5_ms">5 ms</string>
+    <string name="jitter_10_ms">10 ms</string>
+    <string name="jitter_15_ms">15 ms</string>
+    <string name="jitter_20_ms">20 ms</string>
+    <string name="jitter_30_ms">30 ms</string>
+    <string name="jitter_50_ms">50 ms</string>
+    <string-array name="jitter_buffer_values">
+        <item>@string/jitter_0_ms</item>
+        <item>@string/jitter_5_ms</item>
+        <item>@string/jitter_10_ms</item>
+        <item>@string/jitter_15_ms</item>
+        <item>@string/jitter_20_ms</item>
+        <item>@string/jitter_30_ms</item>
+        <item>@string/jitter_50_ms</item>
+    </string-array>
+</resources>

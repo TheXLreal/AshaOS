@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     Copyright (C) 2026 The AshaOS Project
+     Licensed under the Apache License, Version 2.0.
+-->
+<resources>
+    <!--
+         Android 14 navigation architecture:
+           0 = three buttons
+           1 = Back + QuickStep Home pill, swipe up for Overview
+           2 = fully gestural
+
+         This immutable AshaOS product default has lower precedence than the
+         mutable stock navigation-mode RROs, so other modes remain selectable.
+    -->
+    <integer name="config_navBarInteractionMode">1</integer>
+</resources>

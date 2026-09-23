@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=AshaOS
+Name[ru]=AshaOS
+Comment=Stream Linux desktop audio to AshaOS
+Comment[ru]=Передача системного звука Linux в AshaOS
+Exec=ashaos-linux
+Icon=io.github.ashaos.LinuxSender
+Terminal=false
+Categories=AudioVideo;Audio;
+StartupNotify=true

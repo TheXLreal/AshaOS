@@ -1,0 +1,21 @@
+diff --git a/telephony/java/android/telephony/SubscriptionManager.java b/telephony/java/android/telephony/SubscriptionManager.java
+index 8b926fadb456..5d47cdccefda 100644
+--- a/telephony/java/android/telephony/SubscriptionManager.java
++++ b/telephony/java/android/telephony/SubscriptionManager.java
+@@ -1614,6 +1614,16 @@ public class SubscriptionManager {
+             return mCreatorLooper;
+         }
+ 
++        /**
++         * Keep the handler-backed executor used by older device components available.
++         *
++         * @hide
++         */
++        public HandlerExecutor getHandlerExecutor() {
++            Looper looper = mCreatorLooper != null ? mCreatorLooper : Looper.getMainLooper();
++            return new HandlerExecutor(new Handler(looper));
++        }
++
+         /**
+          * Create an OnSubscriptionsChangedListener.
+          *

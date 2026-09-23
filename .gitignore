@@ -1,0 +1,13 @@
+/build/
+*.img
+*.img.gz
+*.zip
+*.deb
+*.exe
+*.apk
+*.apex
+*.capex
+*.log
+*.partial
+*.sha256
+SHA256SUMS.txt

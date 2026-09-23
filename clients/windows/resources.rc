@@ -1,0 +1,30 @@
+#include "resource.h"
+
+IDI_ASHAOS ICON "ashaos.ico"
+
+1 VERSIONINFO
+ FILEVERSION 1,7,0,0
+ PRODUCTVERSION 1,7,0,0
+ FILEFLAGSMASK 0x3fL
+ FILEFLAGS 0x0L
+ FILEOS 0x40004L
+ FILETYPE 0x1L
+ FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "CompanyName", "AshaOS"
+            VALUE "FileDescription", "AshaOS Windows audio sender"
+            VALUE "FileVersion", "1.7.0"
+            VALUE "ProductName", "AshaOS"
+            VALUE "ProductVersion", "1.7.0"
+            VALUE "LegalCopyright", "Copyright (c) 2026 XLreal"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 1200
+    END
+END
