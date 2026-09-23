@@ -1139,8 +1139,6 @@ static DWORD WINAPI direct_sender_thread_main(LPVOID parameter)
                     }
                     starvation_records++;
                 }
-                source_preroll_ready = FALSE;
-                InterlockedExchange(&g_app.direct_preroll_ready, 0);
                 // A silent source must not tear down the authenticated TCP
                 // session.  Keep sending correctly timed PCM records so Start
                 // remains active before the first Windows sound and after it.
@@ -1638,15 +1636,10 @@ static DWORD WINAPI capture_thread_main(LPVOID unused)
                                 && now_us - (uint64_t)last_signal_us
                                         <= DIRECT_IDLE_HOLD_US);
                 EnterCriticalSection(&queue_lock);
-                if (source_active) {
-                    dropped_frames = append_capture_frames(
-                            ring, &ring_frames, capture_data,
-                            capture_frames, capture_flags);
-                } else {
-                    ring_frames = 0;
-                    dropped_frames = 0;
-                    InterlockedExchange(&g_app.direct_preroll_ready, 0);
-                }
+                dropped_frames = append_capture_frames(
+                        ring, &ring_frames, capture_data,
+                        capture_frames, source_active ? capture_flags
+                                : capture_flags | AUDCLNT_BUFFERFLAGS_SILENT);
                 InterlockedExchange(
                         &g_app.queue_frames, (LONG)ring_frames);
                 LeaveCriticalSection(&queue_lock);

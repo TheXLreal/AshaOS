@@ -1,13 +1,16 @@
 #pragma once
 
 #include <QByteArray>
-#include <QElapsedTimer>
 #include <QHostAddress>
 #include <QObject>
 #include <QProcess>
 #include <QTcpSocket>
 #include <QTimer>
 #include <QUdpSocket>
+
+#include <atomic>
+#include <mutex>
+#include <thread>
 
 struct SenderConfig {
   QString address;
@@ -41,6 +44,9 @@ class SenderWorker : public QObject {
 
  private:
   void tick();
+  bool sendPacket();
+  QByteArray nextPcm();
+  void runDirectUdpPacer(int fd);
   void captureReady();
   void fail(const QString &message);
   QByteArray processPcm(QByteArray pcm) const;
@@ -55,12 +61,18 @@ class SenderWorker : public QObject {
   QHostAddress address_;
   QByteArray nonce_;
   QByteArray pcmQueue_;
-  QElapsedTimer clock_;
-  qint64 lastSignalMs_ = -1;
+  QByteArray lastRealPcm_;
+  QByteArray lastOutputPcm_;
+  int missingPcmPackets_ = 0;
+  std::mutex pcmMutex_;
+  std::thread udpPacerThread_;
+  std::atomic<bool> udpPacerStop_{false};
   quint32 sequence_ = 0;
-  quint64 sent_ = 0;
-  quint64 silent_ = 0;
-  quint64 dropped_ = 0;
+  quint64 nextSendNs_ = 0;
+  std::atomic<quint64> sent_{0};
+  std::atomic<quint64> silent_{0};
+  std::atomic<quint64> dropped_{0};
   bool running_ = false;
   bool stopping_ = false;
+  bool primed_ = false;
 };

@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Network Widgets)
+find_package(Qt6 REQUIRED COMPONENTS Core DBus Gui Network Widgets)
 
 qt_add_executable(ashaos-linux
   main.cpp
@@ -18,7 +18,7 @@ qt_add_executable(ashaos-linux
 )
 
 target_link_libraries(ashaos-linux PRIVATE
-  Qt6::Core Qt6::Gui Qt6::Network Qt6::Widgets
+  Qt6::Core Qt6::DBus Qt6::Gui Qt6::Network Qt6::Widgets
 )
 
 install(TARGETS ashaos-linux RUNTIME DESTINATION bin)

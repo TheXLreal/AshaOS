@@ -48,9 +48,10 @@ hearing-device link.
 Sender 1.7 transmits session-tagged silence records while the source is idle.
 Start stays active before the first Windows sound and after playback ends. The
 Windows audio engine is also kept active by a silent render stream by default.
-The sender clears stale PCM and waits for the selected preroll before resuming
-real audio. Min/Max dBFS are PC-side PCM controls;
-they do not override the ASHA volume selected by Android or the hearing device.
+Silent capture frames keep the sender queue ready, so playback can resume after
+a quiet passage without waiting for preroll again. A short capture gap also
+does not restart preroll. Min/Max dBFS are PC-side PCM controls; they do not
+override the ASHA volume selected by Android or the hearing device.
 
 ## Basic use
 
