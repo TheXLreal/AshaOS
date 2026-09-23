@@ -115,3 +115,4 @@ XLreal's copyright notice in [NOTICE](NOTICE.md). Upstream Android and
 LineageOS files retain their own copyright and licenses. Google/Qualcomm
 proprietary vendor files are not included. See [components and services](docs/COMPONENTS.md)
 for why ADB, Android Bluetooth, and desktop audio services are used.
+Please note that this was all done using ChatGPT Codex, and the code may still contain errors.
